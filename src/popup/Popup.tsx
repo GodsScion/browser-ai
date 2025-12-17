@@ -7,14 +7,14 @@ interface Message {
   id: string
   content: string
   type: 'user' | 'ai'
-  timestamp: Date
+  timestamp: Date | string | number
 }
 
 interface ChatSession {
   id: string
   name: string
   messages: Message[]
-  createdAt: Date
+  createdAt: Date | string | number
 }
 
 interface Settings {
@@ -37,9 +37,26 @@ export default function Popup() {
   })
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  const formatTimestamp = (timestamp: Date | string) => {
+  const formatTimestamp = (timestamp: Date | string | number) => {
     try {
-      const date = timestamp instanceof Date ? timestamp : new Date(timestamp)
+      // Handle various timestamp formats
+      let date: Date
+      
+      if (timestamp instanceof Date) {
+        date = timestamp
+      } else if (typeof timestamp === 'string') {
+        date = new Date(timestamp)
+      } else if (typeof timestamp === 'number') {
+        date = new Date(timestamp)
+      } else {
+        date = new Date()
+      }
+      
+      // Validate the date is valid
+      if (isNaN(date.getTime())) {
+        date = new Date()
+      }
+      
       return date.toLocaleTimeString()
     } catch (error: unknown) {
       return new Date().toLocaleTimeString()
@@ -70,12 +87,30 @@ export default function Popup() {
     scrollToBottom()
   }, [currentSession?.messages])
 
+  const validateMessage = (message: any): Message => {
+    return {
+      id: message.id || Date.now().toString(),
+      content: message.content || '',
+      type: (message.type === 'user' || message.type === 'ai') ? message.type : 'user',
+      timestamp: message.timestamp || Date.now()
+    }
+  }
+
+  const validateSession = (session: any): ChatSession => {
+    return {
+      id: session.id || Date.now().toString(),
+      name: session.name || 'Untitled Chat',
+      messages: Array.isArray(session.messages) ? session.messages.map(validateMessage) : [],
+      createdAt: session.createdAt || Date.now()
+    }
+  }
+
   const loadStoredData = async () => {
     try {
       const result = await chrome.storage.local.get(['chatSessions', 'settings', 'currentSessionId', 'dataVersion'])
       
       // Check if we need to migrate or clear old data
-      const currentDataVersion = '1.0'
+      const currentDataVersion = '1.1' // Increment version to force data cleanup
       if (result.dataVersion && result.dataVersion !== currentDataVersion) {
         logger.popup('Data version mismatch, clearing old data')
         await chrome.storage.local.clear()
@@ -85,49 +120,45 @@ export default function Popup() {
       }
       
       if (result.chatSessions && Array.isArray(result.chatSessions)) {
-        // Convert timestamp strings back to Date objects
-        const sessionsWithDates = result.chatSessions.map((session: any) => {
-          try {
-            return {
-              ...session,
-              createdAt: new Date(session.createdAt || Date.now()),
-              messages: (session.messages || []).map((message: any) => ({
-                ...message,
-                timestamp: new Date(message.timestamp || Date.now())
-              }))
-            }
-          } catch (sessionError) {
-            console.error('Error processing session:', sessionError)
-            return {
-              id: session.id || Date.now().toString(),
-              name: session.name || 'Corrupted Chat',
-              messages: [],
-              createdAt: new Date()
+        try {
+          // Validate and clean all session data
+          const validatedSessions = result.chatSessions
+            .map(validateSession)
+            .filter(session => session.id && session.name) // Remove invalid sessions
+          
+          setChatSessions(validatedSessions)
+          logger.popup('Loaded chat sessions:', validatedSessions.length)
+          
+          if (result.currentSessionId) {
+            const session = validatedSessions.find((s: ChatSession) => s.id === result.currentSessionId)
+            if (session) {
+              setCurrentSession(session)
+              logger.popup('Restored current session:', session.name)
             }
           }
-        })
-        setChatSessions(sessionsWithDates)
-        logger.popup('Loaded chat sessions:', sessionsWithDates.length)
-        
-        if (result.currentSessionId) {
-          const session = sessionsWithDates.find((s: ChatSession) => s.id === result.currentSessionId)
-          if (session) {
-            setCurrentSession(session)
-            logger.popup('Restored current session:', session.name)
-          }
+        } catch (sessionError) {
+          console.error('Error processing sessions, clearing data:', sessionError)
+          await chrome.storage.local.clear()
+          await chrome.storage.local.set({ dataVersion: currentDataVersion })
         }
       }
-      if (result.settings) {
-        setSettings(result.settings)
+      
+      if (result.settings && typeof result.settings === 'object') {
+        setSettings({
+          provider: (result.settings.provider === 'openai' || result.settings.provider === 'anthropic') 
+            ? result.settings.provider : 'openai',
+          apiKey: typeof result.settings.apiKey === 'string' ? result.settings.apiKey : ''
+        })
       }
       
       // Set data version if not present
       if (!result.dataVersion) {
-        await chrome.storage.local.set({ dataVersion: '1.0' })
+        await chrome.storage.local.set({ dataVersion: currentDataVersion })
       }
     } catch (error: unknown) {
       console.error('Failed to load stored data:', error)
       // Reset to clean state if there's a critical error
+      await chrome.storage.local.clear()
       setChatSessions([])
       setCurrentSession(null)
       setSettings({ provider: 'openai', apiKey: '' })
@@ -281,6 +312,8 @@ export default function Popup() {
       setChatSessions([])
       setCurrentSession(null)
       setSettings({ provider: 'openai', apiKey: '' })
+      // Force reload to ensure clean state
+      window.location.reload()
     } catch (error: unknown) {
       console.error('Failed to clear data:', error)
     }

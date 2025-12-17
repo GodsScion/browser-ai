@@ -1,12 +1,37 @@
 // Background service worker for Chrome extension
 import { logger } from '../shared/debug'
-import { createBrowserAutomationAgent, createAgentConfig, type AgentContext } from '../agent/agent'
-import { HumanMessage } from '@langchain/core/messages'
+
+// Lazy load heavy dependencies to avoid service worker registration issues
+let agentModule: any = null
+let messagesModule: any = null
+
+async function loadAgentModule() {
+  if (!agentModule) {
+    agentModule = await import('../agent/agent')
+  }
+  return agentModule
+}
+
+async function loadMessagesModule() {
+  if (!messagesModule) {
+    messagesModule = await import('@langchain/core/messages')
+  }
+  return messagesModule
+}
 
 // Helper function to format errors safely
 function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+// Global error handler for service worker
+self.addEventListener('error', (event) => {
+  console.error('Service worker error:', event.error)
+})
+
+self.addEventListener('unhandledrejection', (event) => {
+  console.error('Service worker unhandled rejection:', event.reason)
+})
 
 logger.background('Browser Automation Assistant background script loaded')
 
@@ -62,8 +87,12 @@ async function handleTaskExecution(payload: any) {
   }
 
   try {
+    // Lazy load modules
+    const { createBrowserAutomationAgent, createAgentConfig } = await loadAgentModule()
+    const { HumanMessage } = await loadMessagesModule()
+
     // Create agent context
-    const context: AgentContext = {
+    const context = {
       userId: 'extension_user', // Could be made dynamic
       sessionId,
       provider: settings.provider,

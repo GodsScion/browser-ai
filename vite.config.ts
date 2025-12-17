@@ -22,16 +22,28 @@ export default defineConfig({
         content: resolve(__dirname, 'src/content/content.ts')
       },
       output: {
-        entryFileNames: '[name].js',
-        chunkFileNames: '[name].js',
-        assetFileNames: '[name].[ext]'
+        entryFileNames: (chunkInfo) => {
+          // Use different formats for different entry points
+          if (chunkInfo.name === 'background') {
+            return '[name].js' // Keep background as ES module for dynamic imports
+          }
+          return '[name].js'
+        },
+        chunkFileNames: (chunkInfo) => {
+          // Ensure chunk names don't start with underscore
+          const name = chunkInfo.name || 'chunk'
+          return name.startsWith('_') ? name.substring(1) + '.js' : name + '.js'
+        },
+        assetFileNames: '[name].[ext]',
+        format: 'es' // Use ES modules format for dynamic imports
       },
       external: [
         '@anthropic-ai/sdk/lib/transform-json-schema'
       ]
     },
     outDir: 'dist',
-    emptyOutDir: true
+    emptyOutDir: true,
+    target: 'es2020' // Ensure compatibility with Chrome service workers
   },
   resolve: {
     alias: {
