@@ -24,7 +24,7 @@ function createModel(provider: "openai" | "anthropic", apiKey: string) {
   switch (provider) {
     case "openai":
       return new ChatOpenAI({
-        model: "gpt-4o",
+        model: "gpt-4o-mini",
         apiKey,
         temperature: 0.1,
         maxTokens: 4000
@@ -55,11 +55,13 @@ const systemPrompt = `You are a Browser Automation Assistant, an AI agent specia
 
 ## Your Approach:
 1. **Understand the Task**: Break down user requests into specific browser actions
-2. **Inspect First**: Always get the page DOM before taking actions to understand the current state
-3. **Be Precise**: Use specific CSS selectors and verify elements exist before interacting
-4. **Step by Step**: Execute actions incrementally and verify results
-5. **Ask for Help**: Request human assistance for captchas, authentication, or unclear situations
-6. **Provide Feedback**: Explain what you're doing and what you observe
+2. **Be Proactive**: When a user asks for information (like weather), automatically complete all necessary steps to get that information
+3. **Inspect First**: Always get the page DOM before taking actions to understand the current state
+4. **Be Precise**: Use specific CSS selectors and verify elements exist before interacting
+5. **Complete the Task**: Don't stop halfway - if you navigate to a site, extract the requested information
+6. **Step by Step**: Execute actions incrementally and verify results
+7. **Ask for Help**: Request human assistance for captchas, authentication, or unclear situations
+8. **Provide Feedback**: Explain what you're doing and what you observe
 
 ## Safety Guidelines:
 - Never perform destructive actions without explicit user consent
@@ -74,14 +76,24 @@ const systemPrompt = `You are a Browser Automation Assistant, an AI agent specia
 - Provide helpful suggestions when tasks cannot be completed
 - Ask clarifying questions when instructions are ambiguous
 
-Start by understanding the user's goal, then inspect the current page state to plan your approach.`;
+Start by understanding the user's goal, then inspect the current page state to plan your approach.
+
+## Common Task Examples:
+- **Weather Queries**: When asked about weather, navigate to a weather site, search for the location, extract the current conditions, and report back with specific details (temperature, conditions, etc.)
+- **Information Lookup**: When asked to find information, navigate to appropriate sites, search, extract relevant data, and provide a comprehensive answer
+- **Multi-step Tasks**: Complete all logical steps automatically without asking for permission at each step
+
+Remember: Your goal is to provide complete, useful answers by actually performing the browser automation, not just navigating to sites.`;
 
 // Simple agent implementation using just the model and tools
 export function createBrowserAutomationAgent(context: AgentContext) {
+  console.log('Creating model with provider:', context.provider)
   const model = createModel(context.provider, context.apiKey);
+  console.log('Model created successfully')
   
-  // Bind tools to the model
+  // Re-enable tools now that basic AI processing works
   const modelWithTools = model.bindTools(allTools);
+  console.log('Tools bound successfully')
   
   return {
     model: modelWithTools,
@@ -89,26 +101,35 @@ export function createBrowserAutomationAgent(context: AgentContext) {
     systemPrompt,
     invoke: async (input: any) => {
       try {
+        console.log('Agent invoke called with input:', input)
+        
         // Prepare messages with system prompt
         const messages = [
           new SystemMessage(systemPrompt),
           ...input.messages
         ];
         
-        // Get response from model
+        console.log('Prepared messages:', messages.length, 'messages')
+        console.log('Calling model.invoke...')
+        
+        // Get response from model with tools
         const response = await modelWithTools.invoke(messages);
+        
+        console.log('Model response received:', response)
         
         // Check if the model wants to use tools
         if (response.tool_calls && response.tool_calls.length > 0) {
+          console.log('Model requested tool calls:', response.tool_calls)
+          
           // For now, we'll handle tool calls in a simple way
           // In a full implementation, you'd want proper tool execution and human approval
           const toolCall = response.tool_calls[0];
           
-          // Check if this tool requires human approval
-          const sensitiveTools = ['click_element', 'input_text', 'navigate_to_url', 'select_option'];
-          const requiresApproval = sensitiveTools.includes(toolCall.name);
+          // Disable human-in-the-loop for now - let AI execute all tools automatically
+          let requiresApproval = false; // Never require approval
           
           if (requiresApproval) {
+            console.log('Tool requires approval:', toolCall.name)
             // Return with interrupt for human approval
             return {
               messages: [...input.messages, response],
@@ -123,6 +144,37 @@ export function createBrowserAutomationAgent(context: AgentContext) {
                 }
               }]
             };
+          } else {
+            console.log('Tool does not require approval, executing:', toolCall.name)
+            
+            // Execute the tool directly for non-sensitive actions
+            try {
+              // Find the tool function
+              const tool = allTools.find(t => t.name === toolCall.name);
+              if (tool) {
+                console.log('Executing tool:', toolCall.name, 'with args:', toolCall.args)
+                const toolResult = await (tool as any).invoke(toolCall.args);
+                console.log('Tool execution result:', toolResult)
+                
+                // Return the tool result as the response
+                return {
+                  messages: [...input.messages, response],
+                  content: `I executed ${toolCall.name} and got: ${toolResult}`
+                };
+              } else {
+                console.error('Tool not found:', toolCall.name)
+                return {
+                  messages: [...input.messages, response],
+                  content: `Tool ${toolCall.name} not found.`
+                };
+              }
+            } catch (toolError) {
+              console.error('Tool execution failed:', toolError)
+              return {
+                messages: [...input.messages, response],
+                content: `Tool execution failed: ${toolError instanceof Error ? toolError.message : String(toolError)}`
+              };
+            }
           }
         }
         
@@ -132,6 +184,11 @@ export function createBrowserAutomationAgent(context: AgentContext) {
         };
       } catch (error) {
         console.error('Agent execution error:', error);
+        console.error('Error details:', {
+          name: error instanceof Error ? error.name : 'Unknown',
+          message: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : 'No stack trace'
+        });
         throw error;
       }
     }

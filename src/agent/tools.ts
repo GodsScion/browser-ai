@@ -6,13 +6,40 @@ function formatError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-// Helper function to send messages to content script
-async function sendToContentScript(tabId: number | undefined, message: any) {
+// Helper function to send messages to content script with retry logic
+async function sendToContentScript(tabId: number | undefined, message: any, retries: number = 3) {
   const targetTabId = tabId || (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
   if (!targetTabId) {
     throw new Error("No active tab found");
   }
-  return await chrome.tabs.sendMessage(targetTabId, message);
+  
+  for (let i = 0; i < retries; i++) {
+    try {
+      // Wait a bit for content script to load on first attempt
+      if (i === 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+      
+      return await chrome.tabs.sendMessage(targetTabId, message);
+    } catch (error) {
+      if (i === retries - 1) {
+        // On final retry, ask background script to inject content script
+        try {
+          await chrome.runtime.sendMessage({
+            type: 'INJECT_CONTENT_SCRIPT',
+            tabId: targetTabId
+          });
+          // Wait a bit for the script to initialize
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return await chrome.tabs.sendMessage(targetTabId, message);
+        } catch (injectionError) {
+          throw new Error(`Could not establish connection after ${retries} retries. Content script may not be loaded.`);
+        }
+      }
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
 }
 
 // Helper function to get active tab ID
@@ -573,6 +600,7 @@ export const switchToTab = tool(
     })
   }
 );
+
 
 // All tools array for easy import
 export const allTools = [

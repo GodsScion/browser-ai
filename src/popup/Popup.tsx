@@ -1,7 +1,109 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { HamburgerIcon, PlusIcon, SettingsIcon, CloseIcon, TrashIcon, SendIcon } from './components/Icons'
 import { logger } from '../shared/debug'
+import SecureStorage from '../shared/secureStorage'
 import './popup.css'
+
+// AI processing function (moved from background to popup for DOM access)
+async function processAITask(payload: any) {
+  const { message: userMessage, sessionId, provider, apiKey, conversationHistory } = payload
+  
+  try {
+    logger.popup('Starting AI task processing...')
+    logger.popup('Provider:', provider, 'API Key length:', apiKey?.length)
+    
+    // Dynamic import of AI modules (works in popup context)
+    logger.popup('Importing LangChain modules...')
+    const { createBrowserAutomationAgent } = await import('../agent/agent')
+    const { HumanMessage } = await import('@langchain/core/messages')
+    logger.popup('LangChain modules imported successfully')
+    
+    // Create agent context
+    const context = {
+      userId: 'extension_user',
+      sessionId,
+      provider,
+      apiKey,
+      userPreferences: {
+        verboseLogging: false,
+        autoApprove: [],
+        timeout: 30000
+      }
+    }
+    logger.popup('Agent context created:', context)
+    
+    // Create agent
+    logger.popup('Creating browser automation agent...')
+    const agent = createBrowserAutomationAgent(context)
+    logger.popup('Agent created successfully')
+    
+    // Convert conversation history to LangChain messages
+    const { AIMessage } = await import('@langchain/core/messages')
+    const langchainMessages = []
+    
+    if (conversationHistory && conversationHistory.length > 0) {
+      for (const msg of conversationHistory) {
+        if (msg.type === 'user') {
+          langchainMessages.push(new HumanMessage(msg.content))
+        } else if (msg.type === 'ai') {
+          langchainMessages.push(new AIMessage(msg.content))
+        }
+      }
+    }
+    
+    // Add the current message
+    langchainMessages.push(new HumanMessage(userMessage))
+    
+    // Invoke the agent with full conversation history
+    logger.popup('Invoking agent with', langchainMessages.length, 'messages')
+    const result = await agent.invoke({
+      messages: langchainMessages
+    })
+    logger.popup('Agent invocation completed:', result)
+    
+    // Check if there's an interrupt (human approval needed)
+    if (result.__interrupt__ && result.__interrupt__.length > 0) {
+      logger.popup('Agent requires human approval:', result.__interrupt__)
+      
+      // Return the interrupt data so the UI can handle it
+      return {
+        success: true,
+        content: result.content || 'I need your approval to proceed with this action. Please check the approval dialog.',
+        sessionId,
+        requiresApproval: true,
+        interrupt: result.__interrupt__[0].value
+      }
+    }
+    
+    // Extract response for normal completion
+    const lastMessage = result.messages[result.messages.length - 1]
+    const content = lastMessage?.content || result.content || 'Task completed successfully.'
+    
+    logger.popup('Extracted content:', content)
+    
+    return {
+      success: true,
+      content,
+      sessionId
+    }
+    
+  } catch (error) {
+    logger.error('AI processing error in popup:', error)
+    
+    // Log more detailed error information
+    if (error instanceof Error) {
+      logger.error('Error name:', error.name)
+      logger.error('Error message:', error.message)
+      logger.error('Error stack:', error.stack)
+    }
+    
+    return {
+      success: false,
+      content: `AI processing failed: ${error instanceof Error ? error.message : String(error)}`,
+      error: error instanceof Error ? error.message : String(error)
+    }
+  }
+}
 
 interface Message {
   id: string
@@ -68,11 +170,25 @@ export default function Popup() {
     logger.popup('Popup initializing...')
     loadStoredData()
 
-    // Listen for HITL interrupts from background script
-    const handleMessage = (message: any) => {
+    // Listen for messages from background script
+    const handleMessage = async (message: any, _sender: any, sendResponse: any) => {
       if (message.type === 'HITL_INTERRUPT') {
         logger.popup('Received HITL interrupt:', message.payload)
         setPendingApproval(message.payload)
+      } else if (message.type === 'PROCESS_AI_TASK') {
+        logger.popup('Processing AI task in popup context:', message.payload)
+        try {
+          const result = await processAITask(message.payload)
+          sendResponse(result)
+        } catch (error) {
+          logger.error('AI task processing failed:', error)
+          sendResponse({
+            success: false,
+            content: 'AI processing failed: ' + (error instanceof Error ? error.message : String(error)),
+            error: error instanceof Error ? error.message : String(error)
+          })
+        }
+        return true // Keep message channel open for async response
       }
     }
 
@@ -110,13 +226,12 @@ export default function Popup() {
       const result = await chrome.storage.local.get(['chatSessions', 'settings', 'currentSessionId', 'dataVersion'])
       
       // Check if we need to migrate or clear old data
-      const currentDataVersion = '1.1' // Increment version to force data cleanup
+      const currentDataVersion = '1.1'
       if (result.dataVersion && result.dataVersion !== currentDataVersion) {
-        logger.popup('Data version mismatch, clearing old data')
-        await chrome.storage.local.clear()
+        logger.popup('Data version changed from', result.dataVersion, 'to', currentDataVersion)
+        // Don't clear data automatically - let users keep their chat history
+        // Just update the version
         await chrome.storage.local.set({ dataVersion: currentDataVersion })
-        setIsInitialized(true)
-        return
       }
       
       if (result.chatSessions && Array.isArray(result.chatSessions)) {
@@ -127,14 +242,18 @@ export default function Popup() {
             .filter(session => session.id && session.name) // Remove invalid sessions
           
           setChatSessions(validatedSessions)
-          logger.popup('Loaded chat sessions:', validatedSessions.length)
+          logger.popup('Loaded chat sessions:', validatedSessions.length, validatedSessions)
           
           if (result.currentSessionId) {
             const session = validatedSessions.find((s: ChatSession) => s.id === result.currentSessionId)
             if (session) {
               setCurrentSession(session)
               logger.popup('Restored current session:', session.name)
+            } else {
+              logger.popup('Current session ID not found:', result.currentSessionId)
             }
+          } else {
+            logger.popup('No current session ID stored')
           }
         } catch (sessionError) {
           console.error('Error processing sessions, clearing data:', sessionError)
@@ -143,11 +262,25 @@ export default function Popup() {
         }
       }
       
+      // Load settings with secure API key handling
       if (result.settings && typeof result.settings === 'object') {
+        const provider = (result.settings.provider === 'openai' || result.settings.provider === 'anthropic') 
+          ? result.settings.provider : 'openai'
+        
+        // Get API key from secure storage
+        const apiKey = await SecureStorage.getApiKey(provider) || ''
+        
         setSettings({
-          provider: (result.settings.provider === 'openai' || result.settings.provider === 'anthropic') 
-            ? result.settings.provider : 'openai',
-          apiKey: typeof result.settings.apiKey === 'string' ? result.settings.apiKey : ''
+          provider,
+          apiKey
+        })
+      } else {
+        // Check if we have any stored API keys for default provider
+        const defaultProvider = 'openai'
+        const apiKey = await SecureStorage.getApiKey(defaultProvider) || ''
+        setSettings({
+          provider: defaultProvider,
+          apiKey
         })
       }
       
@@ -172,7 +305,7 @@ export default function Popup() {
       await chrome.storage.local.set({
         chatSessions: sessions,
         currentSessionId: currentSessionId || currentSession?.id,
-        dataVersion: '1.0'
+        dataVersion: '1.1'
       })
     } catch (error: unknown) {
       console.error('Failed to save to storage:', error)
@@ -249,16 +382,26 @@ export default function Popup() {
     setInput('')
     setIsLoading(true)
 
-    // Send to background script for AI processing
+    // Process AI task directly in popup context (no need to go through background)
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'EXECUTE_TASK',
-        payload: {
-          message: input,
-          sessionId: session.id,
-          settings
-        }
+      logger.popup('Processing AI task directly in popup...')
+      const response = await processAITask({
+        message: input,
+        sessionId: session.id,
+        provider: settings.provider,
+        apiKey: settings.apiKey,
+        conversationHistory: updatedMessages // Pass full conversation history
       })
+
+      // Check if the response requires approval
+      if (response.requiresApproval && response.interrupt) {
+        logger.popup('Setting pending approval:', response.interrupt)
+        setPendingApproval({
+          sessionId: session.id,
+          interrupt: response.interrupt,
+          config: {}
+        })
+      }
 
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -299,16 +442,44 @@ export default function Popup() {
 
   const saveSettings = async () => {
     try {
-      await chrome.storage.local.set({ settings })
+      // Store API key securely
+      if (settings.apiKey && settings.apiKey.trim() !== '') {
+        await SecureStorage.storeApiKey(settings.provider, settings.apiKey)
+      } else {
+        await SecureStorage.removeApiKey(settings.provider)
+      }
+      
+      // Store non-sensitive settings in regular storage
+      const publicSettings = {
+        provider: settings.provider
+        // Note: apiKey is NOT stored here - it's in secure storage
+      }
+      
+      await chrome.storage.local.set({ settings: publicSettings })
       setShowSettings(false)
+      logger.popup('Settings saved securely')
     } catch (error: unknown) {
       console.error('Failed to save settings:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      alert(`Failed to save settings: ${errorMessage}`)
+    }
+  }
+
+  const debugStorage = async () => {
+    try {
+      const result = await chrome.storage.local.get(null) // Get all data
+      console.log('All stored data:', result)
+      const secureInfo = await SecureStorage.getStorageInfo()
+      console.log('Secure storage info:', secureInfo)
+    } catch (error: unknown) {
+      console.error('Failed to debug storage:', error)
     }
   }
 
   const clearAllData = async () => {
     try {
       await chrome.storage.local.clear()
+      await SecureStorage.clearAll() // Clear secure storage too
       setChatSessions([])
       setCurrentSession(null)
       setSettings({ provider: 'openai', apiKey: '' })
@@ -466,13 +637,16 @@ export default function Popup() {
                 </select>
               </div>
               <div className="setting-group">
-                <label>API Key</label>
+                <label>API Key 🔒</label>
                 <input 
                   type="password"
                   value={settings.apiKey}
                   onChange={(e) => setSettings({...settings, apiKey: e.target.value})}
-                  placeholder="Enter your API key"
+                  placeholder="Enter your API key (stored securely)"
                 />
+                <small style={{ color: '#666', fontSize: '12px', marginTop: '4px', display: 'block' }}>
+                  🔐 API keys are encrypted and stored securely. Validation happens during API calls.
+                </small>
               </div>
               <div className="modal-actions">
                 <button onClick={saveSettings} className="save-button">
@@ -483,6 +657,14 @@ export default function Popup() {
                 </button>
               </div>
               <div className="debug-section">
+                <button 
+                  onClick={debugStorage} 
+                  className="debug-button"
+                  title="Debug storage contents"
+                  style={{ marginRight: '8px', fontSize: '12px', padding: '4px 8px' }}
+                >
+                  Debug Storage
+                </button>
                 <button 
                   onClick={clearAllData} 
                   className="clear-data-button"

@@ -1,23 +1,29 @@
 // Background service worker for Chrome extension
 import { logger } from '../shared/debug'
 
-// Lazy load heavy dependencies to avoid service worker registration issues
-let agentModule: any = null
-let messagesModule: any = null
-
-async function loadAgentModule() {
-  if (!agentModule) {
-    agentModule = await import('../agent/agent')
+// Polyfill for service worker environment (LangChain modules may expect DOM)
+if (typeof document === 'undefined') {
+  (globalThis as any).document = {
+    createElement: () => ({}),
+    getElementsByTagName: () => [],
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    head: { appendChild: () => {} },
+    addEventListener: () => {},
+    removeEventListener: () => {}
   }
-  return agentModule
 }
 
-async function loadMessagesModule() {
-  if (!messagesModule) {
-    messagesModule = await import('@langchain/core/messages')
+if (typeof window === 'undefined') {
+  (globalThis as any).window = {
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => {},
+    location: { href: '' }
   }
-  return messagesModule
 }
+
+// Note: AI processing moved to popup context to avoid DOM issues in service worker
 
 // Helper function to format errors safely
 function formatError(error: unknown): string {
@@ -34,9 +40,6 @@ self.addEventListener('unhandledrejection', (event) => {
 })
 
 logger.background('Browser Automation Assistant background script loaded')
-
-// Store active agent instances by session
-const activeAgents = new Map<string, any>()
 
 // Listen for extension installation
 chrome.runtime.onInstalled.addListener(() => {
@@ -66,6 +69,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .catch(error => sendResponse({ error: formatError(error) }))
       break
     
+    case 'INJECT_CONTENT_SCRIPT':
+      handleContentScriptInjection(message.tabId)
+        .then(response => sendResponse(response))
+        .catch(error => sendResponse({ error: formatError(error) }))
+      break
+    
     default:
       logger.background('Unknown message type:', message.type)
       sendResponse({ error: 'Unknown message type' })
@@ -77,88 +86,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 async function handleTaskExecution(payload: any) {
   logger.background('Processing task:', payload)
   
-  const { message: userMessage, sessionId, settings } = payload
+  const { sessionId } = payload
   
-  if (!settings.apiKey) {
-    return {
-      content: 'Please configure your API key in settings to use the AI assistant.',
-      error: 'No API key configured'
-    }
-  }
-
   try {
-    // Lazy load modules
-    const { createBrowserAutomationAgent, createAgentConfig } = await loadAgentModule()
-    const { HumanMessage } = await loadMessagesModule()
 
-    // Create agent context
-    const context = {
-      userId: 'extension_user', // Could be made dynamic
-      sessionId,
-      provider: settings.provider,
-      apiKey: settings.apiKey,
-      userPreferences: {
-        verboseLogging: false,
-        autoApprove: [],
-        timeout: 30000
-      }
-    }
-
-    // Get or create agent for this session
-    let agent = activeAgents.get(sessionId)
-    if (!agent) {
-      agent = createBrowserAutomationAgent(context)
-      activeAgents.set(sessionId, agent)
-    }
-
-    // Create agent configuration
-    const config = createAgentConfig(sessionId)
-
-    // Invoke the agent
-    const result = await agent.invoke({
-      messages: [new HumanMessage(userMessage)]
-    })
-
-    // Check if there's a human-in-the-loop interrupt
-    if (result.__interrupt__) {
-      logger.background('HITL interrupt triggered:', result.__interrupt__)
-      
-      // Send interrupt to popup for user approval
-      try {
-        await chrome.runtime.sendMessage({
-          type: 'HITL_INTERRUPT',
-          payload: {
-            sessionId,
-            interrupt: result.__interrupt__[0]?.value,
-            config
-          }
-        })
-      } catch (error: unknown) {
-        logger.background('Failed to send HITL interrupt to popup:', error)
-      }
-
-      return {
-        content: 'This action requires your approval. Please check the popup for details.',
-        sessionId,
-        timestamp: new Date().toISOString(),
-        requiresApproval: true,
-        interrupt: result.__interrupt__[0]?.value
-      }
-    }
-
-    // Extract the agent's response
-    const lastMessage = result.messages[result.messages.length - 1]
-    const content = lastMessage?.content || 'Task completed successfully.'
-
+    // AI processing is now handled directly in popup context
+    // Background script should not try to delegate back to popup
+    logger.background('AI processing should be handled in popup context')
+    
     return {
-      content,
+      content: 'AI processing is handled in popup context. This message should not appear.',
       sessionId,
       timestamp: new Date().toISOString(),
-      success: true
+      error: 'Background script should not handle AI processing'
     }
 
   } catch (error: unknown) {
-    logger.error('Agent execution failed:', error)
+    logger.error('Task execution failed:', error)
     return {
       content: `I encountered an error: ${formatError(error)}. Please try again or check your settings.`,
       sessionId,
@@ -174,12 +118,7 @@ async function handleHITLResponse(payload: any) {
   const { sessionId, decisions } = payload
   
   try {
-    const agent = activeAgents.get(sessionId)
-    if (!agent) {
-      throw new Error('No active agent found for session')
-    }
-
-    // For now, we'll simulate tool execution based on the decision
+    // Since agents are now managed in popup context, we'll delegate HITL responses too
     const decision = decisions[0]
     let content = 'Action completed successfully.'
     
@@ -225,13 +164,18 @@ async function handleDOMRequest(tabId?: number) {
   }
 }
 
-// Clean up inactive agents periodically
-setInterval(() => {
-  // Simple cleanup - remove random sessions occasionally
-  for (const [sessionId] of activeAgents.entries()) {
-    if (Math.random() < 0.1) { // Randomly clean up some sessions
-      activeAgents.delete(sessionId)
-      logger.background('Cleaned up inactive agent for session:', sessionId)
-    }
+async function handleContentScriptInjection(tabId: number) {
+  try {
+    logger.background('Injecting content script into tab:', tabId)
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content.js']
+    })
+    return { success: true, message: 'Content script injected successfully' }
+  } catch (error: unknown) {
+    logger.error('Failed to inject content script:', error)
+    throw error
   }
-}, 5 * 60 * 1000) // Check every 5 minutes
+}
+
+// Note: Agent management moved to popup context

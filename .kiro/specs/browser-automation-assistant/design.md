@@ -45,7 +45,7 @@ import { createAgent, tool } from "langchain";
 import * as z from "zod";
 
 const browserAutomationAgent = createAgent({
-  model: "openai:gpt-4o",
+  model: "openai:gpt-5-mini",
   tools: [
     getPageDOMTool,
     clickElementTool,

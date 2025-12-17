@@ -37,9 +37,7 @@ export default defineConfig({
         assetFileNames: '[name].[ext]',
         format: 'es' // Use ES modules format for dynamic imports
       },
-      external: [
-        '@anthropic-ai/sdk/lib/transform-json-schema'
-      ]
+      // Removed external dependencies since AI processing moved to popup context
     },
     outDir: 'dist',
     emptyOutDir: true,
