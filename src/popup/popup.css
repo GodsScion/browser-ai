@@ -321,6 +321,80 @@
   font-size: 14px;
 }
 
+/* Approval Modal */
+.approval-modal {
+  max-width: 500px;
+}
+
+.approval-content {
+  margin-bottom: 20px;
+}
+
+.action-request {
+  background: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 6px;
+  padding: 15px;
+  margin: 10px 0;
+}
+
+.action-name {
+  font-weight: 600;
+  color: #007acc;
+  margin-bottom: 5px;
+}
+
+.action-description {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 10px;
+}
+
+.action-args {
+  background: #f1f3f4;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 10px;
+  font-size: 12px;
+  overflow-x: auto;
+  margin: 0;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.approve-button,
+.reject-button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.approve-button {
+  background: #28a745;
+  color: white;
+}
+
+.approve-button:hover {
+  background: #218838;
+}
+
+.reject-button {
+  background: #dc3545;
+  color: white;
+}
+
+.reject-button:hover {
+  background: #c82333;
+}
+
 /* Chat Container */
 .chat-container {
   flex: 1;

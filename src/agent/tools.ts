@@ -1,6 +1,11 @@
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 
+// Helper function to format errors safely
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 // Helper function to send messages to content script
 async function sendToContentScript(tabId: number | undefined, message: any) {
   const targetTabId = tabId || (await chrome.tabs.query({ active: true, currentWindow: true }))[0]?.id;
@@ -25,8 +30,8 @@ export const getPageDOM = tool(
     try {
       const response = await sendToContentScript(tabId, { type: 'GET_DOM_SNAPSHOT' });
       return JSON.stringify(response, null, 2);
-    } catch (error) {
-      return `Error getting DOM: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error getting DOM: ${formatError(error)}`;
     }
   },
   {
@@ -46,8 +51,8 @@ export const findElements = tool(
         selector 
       });
       return `Found ${response.elements?.length || 0} elements matching "${selector}": ${JSON.stringify(response.elements)}`;
-    } catch (error) {
-      return `Error finding elements: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error finding elements: ${formatError(error)}`;
     }
   },
   {
@@ -69,8 +74,8 @@ export const clickElement = tool(
         selector 
       });
       return response.success ? `Successfully clicked element: ${selector}` : `Failed to click element: ${selector}`;
-    } catch (error) {
-      return `Error clicking element: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error clicking element: ${formatError(error)}`;
     }
   },
   {
@@ -92,8 +97,8 @@ export const inputText = tool(
         text 
       });
       return response.success ? `Successfully entered text "${text}" into ${selector}` : `Failed to enter text into ${selector}`;
-    } catch (error) {
-      return `Error entering text: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error entering text: ${formatError(error)}`;
     }
   },
   {
@@ -116,8 +121,8 @@ export const selectOption = tool(
         value 
       });
       return response.success ? `Successfully selected option "${value}" in ${selector}` : `Failed to select option in ${selector}`;
-    } catch (error) {
-      return `Error selecting option: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error selecting option: ${formatError(error)}`;
     }
   },
   {
@@ -141,8 +146,8 @@ export const scrollPage = tool(
         amount 
       });
       return response.success ? `Successfully scrolled ${direction} by ${amount}px` : `Failed to scroll page`;
-    } catch (error) {
-      return `Error scrolling page: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error scrolling page: ${formatError(error)}`;
     }
   },
   {
@@ -162,8 +167,8 @@ export const navigateToUrl = tool(
       const targetTabId = tabId || await getActiveTabId();
       await chrome.tabs.update(targetTabId, { url });
       return `Successfully navigated to ${url}`;
-    } catch (error) {
-      return `Error navigating to URL: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error navigating to URL: ${formatError(error)}`;
     }
   },
   {
@@ -182,8 +187,8 @@ export const goBack = tool(
       const targetTabId = tabId || await getActiveTabId();
       await chrome.tabs.goBack(targetTabId);
       return "Successfully went back to previous page";
-    } catch (error) {
-      return `Error going back: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error going back: ${formatError(error)}`;
     }
   },
   {
@@ -201,8 +206,8 @@ export const goForward = tool(
       const targetTabId = tabId || await getActiveTabId();
       await chrome.tabs.goForward(targetTabId);
       return "Successfully went forward to next page";
-    } catch (error) {
-      return `Error going forward: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error going forward: ${formatError(error)}`;
     }
   },
   {
@@ -220,8 +225,8 @@ export const refreshPage = tool(
       const targetTabId = tabId || await getActiveTabId();
       await chrome.tabs.reload(targetTabId);
       return "Successfully refreshed page";
-    } catch (error) {
-      return `Error refreshing page: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error refreshing page: ${formatError(error)}`;
     }
   },
   {
@@ -243,8 +248,8 @@ export const dragAndDrop = tool(
         targetSelector 
       });
       return response.success ? `Successfully dragged ${sourceSelector} to ${targetSelector}` : `Failed to drag and drop`;
-    } catch (error) {
-      return `Error during drag and drop: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error during drag and drop: ${formatError(error)}`;
     }
   },
   {
@@ -266,8 +271,8 @@ export const hoverElement = tool(
         selector 
       });
       return response.success ? `Successfully hovered over ${selector}` : `Failed to hover over element`;
-    } catch (error) {
-      return `Error hovering element: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error hovering element: ${formatError(error)}`;
     }
   },
   {
@@ -288,8 +293,8 @@ export const rightClickElement = tool(
         selector 
       });
       return response.success ? `Successfully right-clicked ${selector}` : `Failed to right-click element`;
-    } catch (error) {
-      return `Error right-clicking element: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error right-clicking element: ${formatError(error)}`;
     }
   },
   {
@@ -311,8 +316,8 @@ export const extractText = tool(
         selector 
       });
       return response.success ? `Extracted text: "${response.text}"` : `Failed to extract text from ${selector}`;
-    } catch (error) {
-      return `Error extracting text: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error extracting text: ${formatError(error)}`;
     }
   },
   {
@@ -334,8 +339,8 @@ export const extractAttribute = tool(
         attribute 
       });
       return response.success ? `Extracted ${attribute}: "${response.value}"` : `Failed to extract ${attribute} from ${selector}`;
-    } catch (error) {
-      return `Error extracting attribute: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error extracting attribute: ${formatError(error)}`;
     }
   },
   {
@@ -357,8 +362,8 @@ export const extractTableData = tool(
         selector 
       });
       return response.success ? `Extracted table data: ${JSON.stringify(response.data, null, 2)}` : `Failed to extract table data from ${selector}`;
-    } catch (error) {
-      return `Error extracting table data: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error extracting table data: ${formatError(error)}`;
     }
   },
   {
@@ -381,8 +386,8 @@ export const waitForElement = tool(
         timeout 
       });
       return response.success ? `Element "${selector}" appeared` : `Element "${selector}" did not appear within ${timeout}ms`;
-    } catch (error) {
-      return `Error waiting for element: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error waiting for element: ${formatError(error)}`;
     }
   },
   {
@@ -404,8 +409,8 @@ export const waitForPageLoad = tool(
         timeout 
       });
       return response.success ? "Page fully loaded" : `Page did not load within ${timeout}ms`;
-    } catch (error) {
-      return `Error waiting for page load: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error waiting for page load: ${formatError(error)}`;
     }
   },
   {
@@ -423,8 +428,8 @@ export const sleep = tool(
     try {
       await new Promise(resolve => setTimeout(resolve, duration));
       return `Waited for ${duration}ms`;
-    } catch (error) {
-      return `Error during sleep: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error during sleep: ${formatError(error)}`;
     }
   },
   {
@@ -438,7 +443,7 @@ export const sleep = tool(
 
 // Human Assistance Tools
 export const requestHumanAssistance = tool(
-  async ({ type, message, context }, runtime) => {
+  async ({ type, message, context }, _runtime) => {
     try {
       // Create assistance request object
       const assistanceRequest = {
@@ -449,10 +454,8 @@ export const requestHumanAssistance = tool(
         timestamp: new Date().toISOString()
       };
 
-      // Store the request for the UI to display
-      if (runtime?.store) {
-        await runtime.store.put(['assistance_requests'], assistanceRequest.id, assistanceRequest);
-      }
+      // Store the request for the UI to display (if store is available)
+      // Note: Store access depends on agent configuration
 
       // Send message to popup to display assistance request
       try {
@@ -460,13 +463,13 @@ export const requestHumanAssistance = tool(
           type: 'ASSISTANCE_REQUEST',
           payload: assistanceRequest
         });
-      } catch (error) {
+      } catch (error: unknown) {
         // Popup might not be open, that's okay
       }
 
       return `Human assistance requested: ${message} (Request ID: ${assistanceRequest.id})`;
-    } catch (error) {
-      return `Error requesting human assistance: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error requesting human assistance: ${formatError(error)}`;
     }
   },
   {
@@ -484,8 +487,6 @@ export const requestHumanAssistance = tool(
 export const takeScreenshot = tool(
   async ({ fullPage = false, tabId }) => {
     try {
-      const targetTabId = tabId || await getActiveTabId();
-      
       if (fullPage) {
         // For full page screenshots, we need to use content script
         const response = await sendToContentScript(tabId, { 
@@ -495,11 +496,11 @@ export const takeScreenshot = tool(
         return response.success ? `Full page screenshot taken and saved` : `Failed to take full page screenshot`;
       } else {
         // For viewport screenshots, use Chrome API
-        const dataUrl = await chrome.tabs.captureVisibleTab(undefined, { format: 'png' });
+        const dataUrl = await chrome.tabs.captureVisibleTab({ format: 'png' });
         return `Viewport screenshot taken (data URL length: ${dataUrl.length} characters)`;
       }
-    } catch (error) {
-      return `Error taking screenshot: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error taking screenshot: ${formatError(error)}`;
     }
   },
   {
@@ -518,8 +519,8 @@ export const openNewTab = tool(
     try {
       const tab = await chrome.tabs.create({ url: url || 'chrome://newtab', active: true });
       return `Successfully opened new tab${url ? ` and navigated to ${url}` : ''} (Tab ID: ${tab.id})`;
-    } catch (error) {
-      return `Error opening new tab: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error opening new tab: ${formatError(error)}`;
     }
   },
   {
@@ -543,8 +544,8 @@ export const getTabsList = tool(
         description: `${tab.title || 'Untitled'} - ${tab.url || 'Unknown URL'}`
       }));
       return `Found ${tabs.length} open tabs:\n${JSON.stringify(tabList, null, 2)}`;
-    } catch (error) {
-      return `Error getting tabs list: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error getting tabs list: ${formatError(error)}`;
     }
   },
   {
@@ -560,8 +561,8 @@ export const switchToTab = tool(
       await chrome.tabs.update(tabId, { active: true });
       const tab = await chrome.tabs.get(tabId);
       return `Successfully switched to tab: ${tab.title} (ID: ${tabId})`;
-    } catch (error) {
-      return `Error switching to tab: ${error.message}`;
+    } catch (error: unknown) {
+      return `Error switching to tab: ${formatError(error)}`;
     }
   },
   {

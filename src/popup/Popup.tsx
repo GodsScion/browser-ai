@@ -30,6 +30,7 @@ export default function Popup() {
   const [showSettings, setShowSettings] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isInitialized, setIsInitialized] = useState(false)
+  const [pendingApproval, setPendingApproval] = useState<any>(null)
   const [settings, setSettings] = useState<Settings>({
     provider: 'openai',
     apiKey: ''
@@ -40,7 +41,7 @@ export default function Popup() {
     try {
       const date = timestamp instanceof Date ? timestamp : new Date(timestamp)
       return date.toLocaleTimeString()
-    } catch (error) {
+    } catch (error: unknown) {
       return new Date().toLocaleTimeString()
     }
   }
@@ -49,6 +50,20 @@ export default function Popup() {
     // Load saved data from chrome storage
     logger.popup('Popup initializing...')
     loadStoredData()
+
+    // Listen for HITL interrupts from background script
+    const handleMessage = (message: any) => {
+      if (message.type === 'HITL_INTERRUPT') {
+        logger.popup('Received HITL interrupt:', message.payload)
+        setPendingApproval(message.payload)
+      }
+    }
+
+    chrome.runtime.onMessage.addListener(handleMessage)
+    
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleMessage)
+    }
   }, [])
 
   useEffect(() => {
@@ -110,7 +125,7 @@ export default function Popup() {
       if (!result.dataVersion) {
         await chrome.storage.local.set({ dataVersion: '1.0' })
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to load stored data:', error)
       // Reset to clean state if there's a critical error
       setChatSessions([])
@@ -128,7 +143,7 @@ export default function Popup() {
         currentSessionId: currentSessionId || currentSession?.id,
         dataVersion: '1.0'
       })
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to save to storage:', error)
     }
   }
@@ -229,7 +244,7 @@ export default function Popup() {
       setChatSessions(finalSessions)
       saveToStorage(finalSessions, session.id)
 
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to process message:', error)
       
       const errorMessage: Message = {
@@ -255,7 +270,7 @@ export default function Popup() {
     try {
       await chrome.storage.local.set({ settings })
       setShowSettings(false)
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to save settings:', error)
     }
   }
@@ -266,8 +281,52 @@ export default function Popup() {
       setChatSessions([])
       setCurrentSession(null)
       setSettings({ provider: 'openai', apiKey: '' })
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Failed to clear data:', error)
+    }
+  }
+
+  const handleApproval = async (decision: 'approve' | 'edit' | 'reject', editedArgs?: any) => {
+    if (!pendingApproval) return
+
+    try {
+      const decisions = [{
+        type: decision,
+        ...(decision === 'edit' && editedArgs ? { args: editedArgs } : {})
+      }]
+
+      const response = await chrome.runtime.sendMessage({
+        type: 'APPROVE_HITL',
+        payload: {
+          sessionId: pendingApproval.sessionId,
+          decisions,
+          config: pendingApproval.config
+        }
+      })
+
+      // Add the response as an AI message
+      if (currentSession && response.content) {
+        const aiMessage: Message = {
+          id: Date.now().toString(),
+          content: response.content,
+          type: 'ai',
+          timestamp: new Date()
+        }
+
+        const updatedMessages = [...currentSession.messages, aiMessage]
+        const updatedSession = { ...currentSession, messages: updatedMessages }
+        setCurrentSession(updatedSession)
+
+        const updatedSessions = chatSessions.map(s => 
+          s.id === currentSession.id ? updatedSession : s
+        )
+        setChatSessions(updatedSessions)
+        saveToStorage(updatedSessions, currentSession.id)
+      }
+
+      setPendingApproval(null)
+    } catch (error: unknown) {
+      console.error('Failed to handle approval:', error)
     }
   }
 
@@ -397,6 +456,43 @@ export default function Popup() {
                   title="Clear all chat history and settings"
                 >
                   Clear All Data
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Human-in-the-Loop Approval Modal */}
+      {pendingApproval && (
+        <div className="modal-overlay">
+          <div className="modal approval-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>🤖 Action Approval Required</h3>
+            </div>
+            <div className="modal-content">
+              <div className="approval-content">
+                <p><strong>The AI wants to perform this action:</strong></p>
+                {pendingApproval.interrupt?.action_requests?.map((request: any, index: number) => (
+                  <div key={index} className="action-request">
+                    <div className="action-name">{request.name}</div>
+                    <div className="action-description">{request.description}</div>
+                    <pre className="action-args">{JSON.stringify(request.arguments, null, 2)}</pre>
+                  </div>
+                ))}
+              </div>
+              <div className="approval-actions">
+                <button 
+                  onClick={() => handleApproval('approve')}
+                  className="approve-button"
+                >
+                  ✅ Approve
+                </button>
+                <button 
+                  onClick={() => handleApproval('reject')}
+                  className="reject-button"
+                >
+                  ❌ Reject
                 </button>
               </div>
             </div>

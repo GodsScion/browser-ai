@@ -25,7 +25,10 @@ export default defineConfig({
         entryFileNames: '[name].js',
         chunkFileNames: '[name].js',
         assetFileNames: '[name].[ext]'
-      }
+      },
+      external: [
+        '@anthropic-ai/sdk/lib/transform-json-schema'
+      ]
     },
     outDir: 'dist',
     emptyOutDir: true
