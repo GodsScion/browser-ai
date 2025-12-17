@@ -1,9 +1,11 @@
 // Content script for DOM manipulation
-console.log('Browser Automation Assistant content script loaded')
+import { logger } from '../shared/debug'
+
+logger.content('Browser Automation Assistant content script loaded')
 
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  console.log('Content script received message:', message)
+  logger.content('Content script received message:', message)
   
   switch (message.type) {
     case 'GET_DOM_SNAPSHOT':
@@ -26,7 +28,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       break
     
     default:
-      console.log('Unknown message type:', message.type)
+      logger.content('Unknown message type:', message.type)
   }
   
   return true
@@ -86,9 +88,9 @@ function clickElement(selector: string) {
   const element = document.querySelector(selector) as HTMLElement
   if (element) {
     element.click()
-    console.log('Clicked element:', selector)
+    logger.content('Clicked element:', selector)
   } else {
-    console.error('Element not found:', selector)
+    logger.error('Element not found:', selector)
   }
 }
 
@@ -97,14 +99,14 @@ function inputText(selector: string, text: string) {
   if (element) {
     element.value = text
     element.dispatchEvent(new Event('input', { bubbles: true }))
-    console.log('Input text into element:', selector, text)
+    logger.content('Input text into element:', selector, text)
   } else {
-    console.error('Input element not found:', selector)
+    logger.error('Input element not found:', selector)
   }
 }
 
 function scrollPage(direction: 'up' | 'down', amount: number = 300) {
   const scrollAmount = direction === 'down' ? amount : -amount
   window.scrollBy(0, scrollAmount)
-  console.log('Scrolled page:', direction, amount)
+  logger.content('Scrolled page:', direction, amount)
 }

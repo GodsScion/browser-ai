@@ -1,14 +1,16 @@
 // Background service worker for Chrome extension
-console.log('Browser Automation Assistant background script loaded')
+import { logger } from '../shared/debug'
+
+logger.background('Browser Automation Assistant background script loaded')
 
 // Listen for extension installation
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('Browser Automation Assistant installed')
+  logger.background('Browser Automation Assistant installed')
 })
 
 // Listen for messages from popup and content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('Background received message:', message)
+  logger.background('Background received message:', message)
   
   switch (message.type) {
     case 'EXECUTE_TASK':
@@ -24,7 +26,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       break
     
     default:
-      console.log('Unknown message type:', message.type)
+      logger.background('Unknown message type:', message.type)
       sendResponse({ error: 'Unknown message type' })
   }
   
@@ -32,7 +34,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 })
 
 async function handleTaskExecution(payload: any) {
-  console.log('Processing task:', payload)
+  logger.background('Processing task:', payload)
   
   const { sessionId, settings } = payload
   
@@ -75,10 +77,10 @@ async function handleDOMRequest(tabId?: number) {
   try {
     // Request DOM snapshot from content script
     const response = await chrome.tabs.sendMessage(tabId, { type: 'GET_DOM_SNAPSHOT' })
-    console.log('DOM snapshot received:', response)
+    logger.background('DOM snapshot received:', response)
     return response
   } catch (error) {
-    console.error('Failed to get DOM snapshot:', error)
+    logger.error('Failed to get DOM snapshot:', error)
     throw error
   }
 }

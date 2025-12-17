@@ -45,6 +45,8 @@ A Chrome extension that enables browser automation through natural language inpu
    npm run build:watch
    ```
 
+5. For debugging, see [DEBUGGING.md](./DEBUGGING.md) for comprehensive guide
+
 ## Usage
 
 1. Click the extension icon in Chrome toolbar
@@ -58,6 +60,25 @@ A Chrome extension that enables browser automation through natural language inpu
 - **Session Management**: Create new chats, view chat history
 - **Settings**: Configure OpenAI or Anthropic API keys
 - **Responsive Design**: Clean, modern interface optimized for extension popup
+
+## Troubleshooting
+
+### Blank Popup Issue
+If the popup appears blank:
+1. Open Chrome DevTools on the popup (right-click popup → Inspect)
+2. Check for JavaScript errors in the Console tab
+3. Go to Settings (⚙️) and click "Clear All Data" to reset
+4. Reload the extension in `chrome://extensions/`
+
+### Data Issues
+- The extension automatically handles data migration between versions
+- If you encounter persistent issues, use the "Clear All Data" button in settings
+- Chat history is stored locally in Chrome's extension storage
+
+### API Configuration
+- Make sure to set your API key in Settings before using the assistant
+- Supported providers: OpenAI and Anthropic
+- API keys are stored securely in Chrome's local storage
 
 ## Features
 

@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { HamburgerIcon, PlusIcon, SettingsIcon, CloseIcon, TrashIcon, SendIcon } from './components/Icons'
+import { logger } from '../shared/debug'
 import './popup.css'
 
 interface Message {
@@ -28,14 +29,25 @@ export default function Popup() {
   const [showSidebar, setShowSidebar] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [isInitialized, setIsInitialized] = useState(false)
   const [settings, setSettings] = useState<Settings>({
     provider: 'openai',
     apiKey: ''
   })
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
+  const formatTimestamp = (timestamp: Date | string) => {
+    try {
+      const date = timestamp instanceof Date ? timestamp : new Date(timestamp)
+      return date.toLocaleTimeString()
+    } catch (error) {
+      return new Date().toLocaleTimeString()
+    }
+  }
+
   useEffect(() => {
     // Load saved data from chrome storage
+    logger.popup('Popup initializing...')
     loadStoredData()
   }, [])
 
@@ -45,21 +57,67 @@ export default function Popup() {
 
   const loadStoredData = async () => {
     try {
-      const result = await chrome.storage.local.get(['chatSessions', 'settings', 'currentSessionId'])
-      if (result.chatSessions) {
-        setChatSessions(result.chatSessions)
+      const result = await chrome.storage.local.get(['chatSessions', 'settings', 'currentSessionId', 'dataVersion'])
+      
+      // Check if we need to migrate or clear old data
+      const currentDataVersion = '1.0'
+      if (result.dataVersion && result.dataVersion !== currentDataVersion) {
+        logger.popup('Data version mismatch, clearing old data')
+        await chrome.storage.local.clear()
+        await chrome.storage.local.set({ dataVersion: currentDataVersion })
+        setIsInitialized(true)
+        return
+      }
+      
+      if (result.chatSessions && Array.isArray(result.chatSessions)) {
+        // Convert timestamp strings back to Date objects
+        const sessionsWithDates = result.chatSessions.map((session: any) => {
+          try {
+            return {
+              ...session,
+              createdAt: new Date(session.createdAt || Date.now()),
+              messages: (session.messages || []).map((message: any) => ({
+                ...message,
+                timestamp: new Date(message.timestamp || Date.now())
+              }))
+            }
+          } catch (sessionError) {
+            console.error('Error processing session:', sessionError)
+            return {
+              id: session.id || Date.now().toString(),
+              name: session.name || 'Corrupted Chat',
+              messages: [],
+              createdAt: new Date()
+            }
+          }
+        })
+        setChatSessions(sessionsWithDates)
+        logger.popup('Loaded chat sessions:', sessionsWithDates.length)
+        
+        if (result.currentSessionId) {
+          const session = sessionsWithDates.find((s: ChatSession) => s.id === result.currentSessionId)
+          if (session) {
+            setCurrentSession(session)
+            logger.popup('Restored current session:', session.name)
+          }
+        }
       }
       if (result.settings) {
         setSettings(result.settings)
       }
-      if (result.currentSessionId && result.chatSessions) {
-        const session = result.chatSessions.find((s: ChatSession) => s.id === result.currentSessionId)
-        if (session) {
-          setCurrentSession(session)
-        }
+      
+      // Set data version if not present
+      if (!result.dataVersion) {
+        await chrome.storage.local.set({ dataVersion: '1.0' })
       }
     } catch (error) {
       console.error('Failed to load stored data:', error)
+      // Reset to clean state if there's a critical error
+      setChatSessions([])
+      setCurrentSession(null)
+      setSettings({ provider: 'openai', apiKey: '' })
+    } finally {
+      setIsInitialized(true)
     }
   }
 
@@ -67,7 +125,8 @@ export default function Popup() {
     try {
       await chrome.storage.local.set({
         chatSessions: sessions,
-        currentSessionId: currentSessionId || currentSession?.id
+        currentSessionId: currentSessionId || currentSession?.id,
+        dataVersion: '1.0'
       })
     } catch (error) {
       console.error('Failed to save to storage:', error)
@@ -201,6 +260,29 @@ export default function Popup() {
     }
   }
 
+  const clearAllData = async () => {
+    try {
+      await chrome.storage.local.clear()
+      setChatSessions([])
+      setCurrentSession(null)
+      setSettings({ provider: 'openai', apiKey: '' })
+    } catch (error) {
+      console.error('Failed to clear data:', error)
+    }
+  }
+
+  // Show loading state while initializing
+  if (!isInitialized) {
+    return (
+      <div className="popup-container">
+        <div className="loading-screen">
+          <div className="loading-spinner"></div>
+          <p>Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="popup-container">
       {/* Header */}
@@ -308,6 +390,15 @@ export default function Popup() {
                   Cancel
                 </button>
               </div>
+              <div className="debug-section">
+                <button 
+                  onClick={clearAllData} 
+                  className="clear-data-button"
+                  title="Clear all chat history and settings"
+                >
+                  Clear All Data
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -321,7 +412,7 @@ export default function Popup() {
               {message.content}
             </div>
             <div className="message-time">
-              {message.timestamp.toLocaleTimeString()}
+              {formatTimestamp(message.timestamp)}
             </div>
           </div>
         ))}
