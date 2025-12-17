@@ -21,6 +21,6 @@
     },
     "types": ["chrome", "node"]
   },
-  "include": ["src", "*.ts"],
+  "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -91,3 +91,22 @@ export interface ExtensionMessage {
   payload: any
   requestId: string
 }
+
+export interface Message {
+  id: string
+  content: string
+  type: 'user' | 'ai'
+  timestamp: Date
+}
+
+export interface ChatSession {
+  id: string
+  name: string
+  messages: Message[]
+  createdAt: Date
+}
+
+export interface Settings {
+  provider: 'openai' | 'anthropic'
+  apiKey: string
+}
